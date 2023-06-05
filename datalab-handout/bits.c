@@ -355,5 +355,15 @@ int floatFloat2Int(unsigned uf) {
  *   Rating: 4
  */
 unsigned floatPower2(int x) {
-    return 2;
+  int bias = (1 << 7) - 1;
+  
+  if (x < -126) 
+    x = 0;
+  else if (x > 127)
+    x = 255;
+  else 
+    x += bias;
+  // printf("%d\n", x);
+
+  return (x & ((1 << 8) - 1)) << 23;
 }
