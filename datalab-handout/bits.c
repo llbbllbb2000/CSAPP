@@ -198,7 +198,10 @@ int negate(int x) {
  *   Rating: 3
  */
 int isAsciiDigit(int x) {
-  return x;
+  int LBound = 0x30;
+  int RBound = 0x39;
+  int LMost = 1 << 31;
+  return !((x + (~LBound + 1)) & LMost) & !!((x + (~RBound)) & LMost);    // x - 0x30 >= 0 && x - 0x39 < 1
 }
 /* 
  * conditional - same as x ? y : z 
@@ -208,7 +211,9 @@ int isAsciiDigit(int x) {
  *   Rating: 3
  */
 int conditional(int x, int y, int z) {
-  return 2;
+  x = !!x;
+  x = ~x + 1; // 0 if x = 0, otherwise -1 (1111 1111 ... 1111 (2))
+  return (x & y) | (~x & z);
 }
 /* 
  * isLessOrEqual - if x <= y  then return 1, else return 0 
@@ -218,7 +223,8 @@ int conditional(int x, int y, int z) {
  *   Rating: 3
  */
 int isLessOrEqual(int x, int y) {
-  return 2;
+  return (!((x >> 31) ^ (y >> 31)) & !((y + ~x + 1) >> 31)) // x, y are both positive or negative, there is no overflow
+          | (((x >> 31) ^ (y >> 31)) & !(y >> 31)); // when one of x and y are in different sign, y must be positive.
 }
 //4
 /* 
@@ -230,7 +236,10 @@ int isLessOrEqual(int x, int y) {
  *   Rating: 4 
  */
 int logicalNeg(int x) {
-  return 2;
+  // if x != 0, then x < 0 or -x < 0 (except when x = -2147483648)
+  int a = ((x >> 31) & 1);  // get the leftmost bit of x
+  int b = (((~x + 1) >> 31) & 1);   // get the leftmost bit of -x
+  return (a | b) ^ 1;
 }
 /* howManyBits - return the minimum number of bits required to represent x in
  *             two's complement
@@ -245,7 +254,36 @@ int logicalNeg(int x) {
  *  Rating: 4
  */
 int howManyBits(int x) {
-  return 0;
+
+  // 1 ~ 32 can be mapped to 0 ~ 31, which can be represented by 5 bits (0 0000)
+  int b4, b3, b2, b1, b0;
+  x = (~(x >> 31) & x) | ((x >> 31) & (~x));  // let x be complement
+  // printf("original x: %d\n", x);
+
+  b4 = !!(x >> 16) << 4;  // b4 will be 16 if the first 16 bits are all 1, otherwise 0
+  x >>= b4;
+  // printf("b4, x: %d\n", x);
+
+  b3 = !!(x >> 8) << 3;
+  x >>= b3;
+  // printf("b3, x: %d\n", x);
+
+  b2 = !!(x >> 4) << 2;
+  x >>= b2;
+  // printf("b2, x: %d\n", x);
+
+  b1 = !!(x >> 2) << 1;
+  x >>= b1;
+  // printf("b1, x: %d\n", x);
+
+  b0 = !!(x >> 1);
+  x >>= b0;
+  b0 += x;  //sometimes there is a remaining 1, and this 1 needs another bits to represent
+  // printf("b0, x: %d\n", x);
+
+  // printf("5bits: %d %d %d %d %d\n", b4, b3, b2, b1, b0);
+
+  return b4 + b3 + b2 + b1 + b0 + 1;  // +1 means the sign bit
 }
 //float
 /* 
@@ -260,7 +298,15 @@ int howManyBits(int x) {
  *   Rating: 4
  */
 unsigned floatScale2(unsigned uf) {
-  return 2;
+  int Ebits = (-1 << 23) ^ (1 << 31), Fbits = ~(-1 << 23);
+  int ufE = uf & Ebits, ufF = (uf & Fbits);
+
+  // printf("%d, %d\n", ufE, ufF);
+  
+  if (ufE == Ebits) return uf;   // uf is NaN or inf
+  else if (ufE == 0) return uf = uf ^ ufF ^ (ufF << 1);   // ufE is zero, denormalized
+
+  return uf = uf ^ ufE ^ (ufE + (1 << 23));
 }
 /* 
  * floatFloat2Int - Return bit-level equivalent of expression (int) f
@@ -275,7 +321,25 @@ unsigned floatScale2(unsigned uf) {
  *   Rating: 4
  */
 int floatFloat2Int(unsigned uf) {
-  return 2;
+  int Ebits = (~0 << 23) ^ (1 << 31), Fbits = ~(~0 << 23);
+  int ufE = uf & Ebits, ufF = (uf & Fbits), bias = (1 << 7) - 1;
+  int actualE = ((ufE >> 23) - bias - 23), F2I = ((1 << 23) + ufF);
+  
+  if (actualE < -23) actualE = -24;
+
+  if (ufE == Ebits) return 0x80000000u; //NaN or inf
+  else if (ufE == 0) return 0u; //denormalized
+
+  if (actualE < 0) F2I = F2I >> (-actualE);
+  else {
+    if (actualE > 32) F2I = 0x80000000u;
+    else {
+      F2I <<= actualE;
+      F2I = F2I ? F2I : 0x80000000u;
+    }
+  }
+
+  return uf & (1 << 31) ? -F2I : F2I;
 }
 /* 
  * floatPower2 - Return bit-level equivalent of the expression 2.0^x
